@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b1220" />
+  <meta name="description" content="Higher / Lower Probability Predictor PWA" />
+  <title>Higher / Lower Probability App</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <style>
+    :root {
+      --bg: #0b1220;
+      --panel: #121a2b;
+      --panel-2: #192338;
+      --text: #e8eefc;
+      --muted: #9db0d1;
+      --accent: #6ea8fe;
+      --good: #2ecc71;
+      --warn: #f1c40f;
+      --bad: #ff6b6b;
+      --border: #2a3957;
+      --shadow: 0 10px 30px rgba(0,0,0,.25);
+      --radius: 20px;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: Inter, Arial, Helvetica, sans-serif;
+      background: linear-gradient(180deg, #08101d 0%, #0f172a 100%);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    .wrap {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.3fr .9fr;
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+
+    .card {
+      background: rgba(18, 26, 43, 0.94);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 22px;
+      backdrop-filter: blur(12px);
+    }
+
+    h1, h2, h3, p { margin-top: 0; }
+    h1 {
+      font-size: clamp(2rem, 3.2vw, 3rem);
+      line-height: 1.05;
+      margin-bottom: 10px;
+    }
+    h2 { font-size: 1.2rem; margin-bottom: 14px; }
+    .sub {
+      color: var(--muted);
+      font-size: 1rem;
+      line-height: 1.55;
+      max-width: 700px;
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .pill {
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      color: var(--text);
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-size: .92rem;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1.05fr .95fr;
+      gap: 20px;
+    }
+
+    .inputs-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      color: var(--muted);
+      font-size: .9rem;
+      margin-bottom: 6px;
+    }
+
+    input, select, button, textarea {
+      width: 100%;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: #0b1424;
+      color: var(--text);
+      padding: 12px 14px;
+      font-size: 1rem;
+      outline: none;
+    }
+
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(110,168,254,.15);
+    }
+
+    .btn-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 6px;
+    }
+
+    button {
+      cursor: pointer;
+      font-weight: 700;
+      transition: transform .15s ease, opacity .15s ease, background .15s ease;
+    }
+
+    button:hover { transform: translateY(-1px); }
+    .primary { background: linear-gradient(180deg, #6ea8fe, #3f82f8); color: #071120; border: none; }
+    .secondary { background: var(--panel-2); }
+    .ghost { background: transparent; }
+    .danger { background: linear-gradient(180deg, #ff8787, #ff6b6b); color: #2b1010; border: none; }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+      margin-top: 14px;
+    }
+
+    .stat {
+      background: #0c1526;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 16px;
+    }
+
+    .stat .k {
+      color: var(--muted);
+      font-size: .85rem;
+      margin-bottom: 6px;
+    }
+
+    .stat .v {
+      font-size: 1.4rem;
+      font-weight: 800;
+    }
+
+    .prediction-box {
+      padding: 18px;
+      border-radius: 18px;
+      border: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(11,20,36,.95), rgba(25,35,56,.95));
+      margin-bottom: 16px;
+    }
+
+    .prediction-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 10px;
+    }
+
+    .prediction-label {
+      font-size: 1.8rem;
+      font-weight: 900;
+      letter-spacing: .4px;
+    }
+
+    .higher { color: var(--good); }
+    .lower { color: var(--bad); }
+    .neutral { color: var(--warn); }
+
+    .meter {
+      width: 100%;
+      height: 16px;
+      border-radius: 999px;
+      background: #09111d;
+      border: 1px solid var(--border);
+      overflow: hidden;
+      margin: 12px 0 8px;
+    }
+
+    .meter-fill {
+      height: 100%;
+      width: 50%;
+      background: linear-gradient(90deg, var(--bad), var(--warn), var(--good));
+      transition: width .25s ease;
+    }
+
+    .split {
+      display: flex;
+      justify-content: space-between;
+      color: var(--muted);
+      font-size: .92rem;
+    }
+
+    .logic-list {
+      margin: 14px 0 0;
+      padding-left: 18px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .history-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+      overflow: hidden;
+      border-radius: 16px;
+      border: 1px solid var(--border);
+    }
+
+    .history-table th,
+    .history-table td {
+      padding: 10px 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      font-size: .94rem;
+    }
+
+    .history-table th { color: var(--muted); background: #0c1526; }
+    .history-table tr:last-child td { border-bottom: none; }
+
+    .tiny {
+      color: var(--muted);
+      font-size: .85rem;
+      line-height: 1.5;
+    }
+
+    .sim-box {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .textarea {
+      min-height: 120px;
+      resize: vertical;
+    }
+
+    .footer-note {
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: .88rem;
+      line-height: 1.5;
+    }
+
+    .badge {
+      display: inline-block;
+      margin-top: 10px;
+      padding: 8px 10px;
+      border-radius: 999px;
+      background: #0c1526;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-size: .88rem;
+    }
+
+    .install-banner {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 20px;
+      padding: 14px 18px;
+      border-radius: 18px;
+      background: #0c1526;
+      border: 1px solid var(--border);
+    }
+
+    .install-banner.show { display: flex; }
+
+    .status-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .status-chip {
+      border: 1px solid var(--border);
+      background: #0c1526;
+      color: var(--muted);
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-size: .84rem;
+    }
+
+    canvas {
+      width: 100%;
+      height: 280px;
+      background: #08111f;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      display: block;
+    }
+
+    @media (max-width: 980px) {
+      .hero, .grid { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 720px) {
+      .inputs-grid, .sim-box, .stat-grid { grid-template-columns: 1fr; }
+      .prediction-head, .install-banner { align-items: flex-start; flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="install-banner" id="installBanner">
+      <div>
+        <strong>Install this app</strong>
+        <div class="tiny">Add it to your device for standalone use and offline access.</div>
+      </div>
+      <button class="primary" id="installBtn" style="max-width:180px;">Install App</button>
+    </div>
+
+    <section class="hero">
+      <div class="card">
+        <h1>Higher / Lower Probability Predictor</h1>
+        <p class="sub">
+          Enter the last 5 outcomes and this app calculates the rolling average, reads momentum and volatility,
+          and estimates whether the next outcome is more likely to be <strong>higher</strong> or <strong>lower</strong> than that average.
+        </p>
+        <div class="pill-row">
+          <span class="pill">5-Outcome Average</span>
+          <span class="pill">Trend + Momentum</span>
+          <span class="pill">Confidence Meter</span>
+          <span class="pill">Backtest Tracking</span>
+          <span class="pill">Simulation Mode</span>
+        </div>
+        <div class="status-row">
+          <span class="status-chip" id="onlineStatus">Checking network...</span>
+          <span class="status-chip" id="swStatus">Service worker not registered</span>
+          <span class="status-chip" id="displayModeStatus">Browser mode</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>How the prediction works</h2>
+        <p class="tiny">
+          This version is a complete PWA-ready app shell. It uses a weighted rules engine rather than a trained machine-learning model.
+          It scores the pattern based on slope, recent momentum, distance from average, and volatility, then converts that score into a probability.
+        </p>
+        <div class="badge">Installable + offline-ready + browser storage</div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="card">
+        <h2>Input the last 5 outcomes</h2>
+        <div class="inputs-grid">
+          <div><label for="n1">Outcome 1</label><input id="n1" type="number" step="any" value="12" /></div>
+          <div><label for="n2">Outcome 2</label><input id="n2" type="number" step="any" value="15" /></div>
+          <div><label for="n3">Outcome 3</label><input id="n3" type="number" step="any" value="14" /></div>
+          <div><label for="n4">Outcome 4</label><input id="n4" type="number" step="any" value="18" /></div>
+          <div><label for="n5">Outcome 5</label><input id="n5" type="number" step="any" value="16" /></div>
+        </div>
+
+        <div class="btn-row">
+          <button class="primary" id="predictBtn">Predict Next Outcome</button>
+          <button class="secondary" id="randomBtn">Load Random Example</button>
+          <button class="ghost" id="clearBtn">Clear</button>
+        </div>
+
+        <div class="stat-grid">
+          <div class="stat"><div class="k">Average</div><div class="v" id="avgStat">15.00</div></div>
+          <div class="stat"><div class="k">Trend Slope</div><div class="v" id="slopeStat">+1.00</div></div>
+          <div class="stat"><div class="k">Volatility</div><div class="v" id="volStat">2.00</div></div>
+          <div class="stat"><div class="k">Recent Momentum</div><div class="v" id="momStat">-2.00</div></div>
+        </div>
+
+        <div style="margin-top: 18px;">
+          <h2 style="margin-bottom:10px;">Pattern chart</h2>
+          <canvas id="chart" width="800" height="280"></canvas>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Prediction Engine</h2>
+        <div class="prediction-box">
+          <div class="prediction-head">
+            <div>
+              <div class="tiny">Predicted next outcome vs average</div>
+              <div class="prediction-label neutral" id="predictionLabel">RUN A PREDICTION</div>
+            </div>
+            <div style="text-align:right; min-width:120px;">
+              <div class="tiny">Confidence</div>
+              <div class="prediction-label" id="confidenceText">50%</div>
+            </div>
+          </div>
+          <div class="meter"><div class="meter-fill" id="meterFill"></div></div>
+          <div class="split"><span>Lower</span><span>Higher</span></div>
+          <ul class="logic-list" id="logicList"><li>Enter values and click predict.</li></ul>
+        </div>
+
+        <h2>Backtest the actual result</h2>
+        <label for="actualNext">Actual next outcome</label>
+        <input id="actualNext" type="number" step="any" placeholder="Enter the actual next value" />
+        <div class="btn-row">
+          <button class="primary" id="saveResultBtn">Save Actual Result</button>
+          <button class="danger" id="resetHistoryBtn">Reset History</button>
+        </div>
+
+        <table class="history-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Prediction</th>
+              <th>Actual</th>
+              <th>Against Avg</th>
+              <th>Result</th>
+            </tr>
+          </thead>
+          <tbody id="historyBody"><tr><td colspan="5" class="tiny">No saved predictions yet.</td></tr></tbody>
+        </table>
+
+        <div class="footer-note" id="accuracyNote">Accuracy: no saved results yet.</div>
+      </div>
+    </section>
+
+    <section class="grid" style="margin-top:20px;">
+      <div class="card">
+        <h2>Simulation Mode</h2>
+        <p class="tiny">
+          Paste a longer series of numbers separated by commas, spaces, or new lines. The app walks the series,
+          uses each prior 5-value window to predict the next one, and shows the simulated hit rate.
+        </p>
+        <label for="seriesInput">Series data</label>
+        <textarea id="seriesInput" class="textarea" placeholder="Example: 12, 15, 14, 18, 16, 17, 13, 19, 20, 18"></textarea>
+        <div class="sim-box">
+          <button class="primary" id="simulateBtn">Run Simulation</button>
+          <button class="secondary" id="loadSampleSeriesBtn">Load Sample Series</button>
+        </div>
+        <div class="stat-grid" style="margin-top:16px;">
+          <div class="stat"><div class="k">Simulation Windows</div><div class="v" id="simWindows">0</div></div>
+          <div class="stat"><div class="k">Simulation Accuracy</div><div class="v" id="simAccuracy">0%</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>PWA File Set</h2>
+        <ul class="logic-list">
+          <li><strong>index.html</strong> — main app shell</li>
+          <li><strong>manifest.webmanifest</strong> — install metadata</li>
+          <li><strong>service-worker.js</strong> — offline caching</li>
+          <li><strong>icons/</strong> — 192 and 512 PNG icons</li>
+        </ul>
+        <div class="footer-note">
+          This canvas file is updated to be PWA-ready. To fully install in a browser, publish the companion manifest, service worker, and icons alongside this file.
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const inputs = ['n1','n2','n3','n4','n5'].map(id => document.getElementById(id));
+    const predictBtn = document.getElementById('predictBtn');
+    const randomBtn = document.getElementById('randomBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const saveResultBtn = document.getElementById('saveResultBtn');
+    const resetHistoryBtn = document.getElementById('resetHistoryBtn');
+    const loadSampleSeriesBtn = document.getElementById('loadSampleSeriesBtn');
+    const simulateBtn = document.getElementById('simulateBtn');
+    const installBtn = document.getElementById('installBtn');
+    const installBanner = document.getElementById('installBanner');
+
+    const avgStat = document.getElementById('avgStat');
+    const slopeStat = document.getElementById('slopeStat');
+    const volStat = document.getElementById('volStat');
+    const momStat = document.getElementById('momStat');
+    const predictionLabel = document.getElementById('predictionLabel');
+    const confidenceText = document.getElementById('confidenceText');
+    const meterFill = document.getElementById('meterFill');
+    const logicList = document.getElementById('logicList');
+    const actualNext = document.getElementById('actualNext');
+    const historyBody = document.getElementById('historyBody');
+    const accuracyNote = document.getElementById('accuracyNote');
+    const seriesInput = document.getElementById('seriesInput');
+    const simWindows = document.getElementById('simWindows');
+    const simAccuracy = document.getElementById('simAccuracy');
+    const onlineStatus = document.getElementById('onlineStatus');
+    const swStatus = document.getElementById('swStatus');
+    const displayModeStatus = document.getElementById('displayModeStatus');
+
+    const chart = document.getElementById('chart');
+    const ctx = chart.getContext('2d');
+
+    let latestPrediction = null;
+    let deferredPrompt = null;
+    let history = JSON.parse(localStorage.getItem('hlPredictorHistory') || '[]');
+
+    function toFixedSafe(n, digits = 2) { return Number.isFinite(n) ? n.toFixed(digits) : '0.00'; }
+    function getValues() {
+      const vals = inputs.map(i => parseFloat(i.value));
+      return vals.every(v => Number.isFinite(v)) ? vals : null;
+    }
+    function mean(arr) { return arr.reduce((a, b) => a + b, 0) / arr.length; }
+    function stdDev(arr) {
+      const m = mean(arr);
+      const variance = arr.reduce((sum, x) => sum + Math.pow(x - m, 2), 0) / arr.length;
+      return Math.sqrt(variance);
+    }
+    function slope(arr) {
+      const xMean = 3;
+      const yMean = mean(arr);
+      let num = 0, den = 0;
+      arr.forEach((y, i) => {
+        const x = i + 1;
+        num += (x - xMean) * (y - yMean);
+        den += Math.pow(x - xMean, 2);
+      });
+      return den === 0 ? 0 : num / den;
+    }
+    function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
+    function sigmoid(x) { return 1 / (1 + Math.exp(-x)); }
+
+    function analyze(values) {
+      const avg = mean(values);
+      const s = slope(values);
+      const vol = stdDev(values);
+      const momentum = values[4] - values[3];
+      const fullMomentum = values[4] - values[0];
+      const distanceFromAvg = values[4] - avg;
+      const range = Math.max(...values) - Math.min(...values);
+
+      let score = 0;
+      const logic = [];
+
+      score += s * 0.9;
+      if (s > 0) logic.push(`Positive slope (${s.toFixed(2)}) supports a higher next outcome.`);
+      else if (s < 0) logic.push(`Negative slope (${s.toFixed(2)}) supports a lower next outcome.`);
+      else logic.push('Flat slope gives no directional edge.');
+
+      score += momentum * 0.65;
+      if (momentum > 0) logic.push(`Recent momentum is positive (${momentum.toFixed(2)}).`);
+      else if (momentum < 0) logic.push(`Recent momentum is negative (${momentum.toFixed(2)}).`);
+      else logic.push('Recent momentum is neutral.');
+
+      score += fullMomentum * 0.22;
+      if (Math.abs(fullMomentum) > 0) logic.push(`Overall 5-point move is ${fullMomentum > 0 ? 'up' : 'down'} ${Math.abs(fullMomentum).toFixed(2)}.`);
+
+      score += (-distanceFromAvg) * 0.18;
+      if (distanceFromAvg > 0) logic.push(`Last value is above average by ${distanceFromAvg.toFixed(2)}, which slightly favors mean reversion.`);
+      else if (distanceFromAvg < 0) logic.push(`Last value is below average by ${Math.abs(distanceFromAvg).toFixed(2)}, which slightly favors a bounce.`);
+      else logic.push('Last value is exactly at the average.');
+
+      if (vol > 0) score += (momentum / vol) * 0.2;
+      logic.push(`Volatility is ${vol.toFixed(2)} across a range of ${range.toFixed(2)}.`);
+
+      const probabilityHigher = clamp(sigmoid(score) * 100, 1, 99);
+      const probabilityLower = 100 - probabilityHigher;
+      const prediction = probabilityHigher > 52 ? 'HIGHER' : probabilityHigher < 48 ? 'LOWER' : 'TOO CLOSE TO CALL';
+      const confidence = prediction === 'TOO CLOSE TO CALL'
+        ? Math.abs(probabilityHigher - 50) * 2
+        : Math.max(probabilityHigher, probabilityLower);
+
+      return { avg, s, vol, momentum, prediction, probabilityHigher, probabilityLower, confidence, logic };
+    }
+
+    function updateStats(result) {
+      avgStat.textContent = toFixedSafe(result.avg);
+      slopeStat.textContent = `${result.s >= 0 ? '+' : ''}${toFixedSafe(result.s)}`;
+      volStat.textContent = toFixedSafe(result.vol);
+      momStat.textContent = `${result.momentum >= 0 ? '+' : ''}${toFixedSafe(result.momentum)}`;
+
+      predictionLabel.textContent = result.prediction;
+      predictionLabel.className = 'prediction-label ' + (
+        result.prediction === 'HIGHER' ? 'higher' : result.prediction === 'LOWER' ? 'lower' : 'neutral'
+      );
+      confidenceText.textContent = `${Math.round(result.confidence)}%`;
+      meterFill.style.width = `${result.probabilityHigher}%`;
+
+      logicList.innerHTML = '';
+      result.logic.forEach(item => {
+        const li = document.createElement('li');
+        li.textContent = item;
+        logicList.appendChild(li);
+      });
+    }
+
+    function drawChart(values, avg) {
+      const w = chart.width, h = chart.height;
+      ctx.clearRect(0, 0, w, h);
+      const pad = 34;
+      const minVal = Math.min(...values, avg) - 2;
+      const maxVal = Math.max(...values, avg) + 2;
+      const span = Math.max(1, maxVal - minVal);
+      const xStep = (w - pad * 2) / (values.length - 1);
+      const yFor = (v) => h - pad - ((v - minVal) / span) * (h - pad * 2);
+
+      ctx.strokeStyle = '#20324f';
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 5; i++) {
+        const y = pad + ((h - pad * 2) / 4) * i;
+        ctx.beginPath();
+        ctx.moveTo(pad, y);
+        ctx.lineTo(w - pad, y);
+        ctx.stroke();
+      }
+
+      ctx.strokeStyle = '#f1c40f';
+      ctx.setLineDash([6, 6]);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(pad, yFor(avg));
+      ctx.lineTo(w - pad, yFor(avg));
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.strokeStyle = '#6ea8fe';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      values.forEach((v, i) => {
+        const x = pad + i * xStep;
+        const y = yFor(v);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      values.forEach((v, i) => {
+        const x = pad + i * xStep;
+        const y = yFor(v);
+        ctx.fillStyle = '#2ecc71';
+        ctx.beginPath();
+        ctx.arc(x, y, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#9db0d1';
+        ctx.font = '12px Inter, Arial';
+        ctx.fillText(`O${i + 1}`, x - 10, h - 10);
+        ctx.fillText(v.toFixed(1), x - 12, y - 10);
+      });
+
+      ctx.fillStyle = '#f1c40f';
+      ctx.font = '12px Inter, Arial';
+      ctx.fillText(`Avg ${avg.toFixed(2)}`, w - 95, yFor(avg) - 8);
+    }
+
+    function runPrediction() {
+      const values = getValues();
+      if (!values) { alert('Please enter all 5 numeric outcomes.'); return; }
+      const result = analyze(values);
+      latestPrediction = { values, ...result };
+      updateStats(result);
+      drawChart(values, result.avg);
+    }
+
+    function renderHistory() {
+      if (!history.length) {
+        historyBody.innerHTML = '<tr><td colspan="5" class="tiny">No saved predictions yet.</td></tr>';
+        accuracyNote.textContent = 'Accuracy: no saved results yet.';
+        return;
+      }
+      historyBody.innerHTML = '';
+      let correct = 0;
+      history.forEach((item, idx) => {
+        if (item.correct) correct += 1;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${idx + 1}</td><td>${item.prediction}</td><td>${Number(item.actual).toFixed(2)}</td><td>${item.actualDirection}</td><td>${item.correct ? 'Correct' : 'Miss'}</td>`;
+        historyBody.appendChild(tr);
+      });
+      const accuracy = (correct / history.length) * 100;
+      accuracyNote.textContent = `Accuracy: ${correct}/${history.length} correct (${accuracy.toFixed(1)}%).`;
+      localStorage.setItem('hlPredictorHistory', JSON.stringify(history));
+    }
+
+    function saveActualResult() {
+      if (!latestPrediction) { alert('Run a prediction first.'); return; }
+      const actual = parseFloat(actualNext.value);
+      if (!Number.isFinite(actual)) { alert('Enter the actual next outcome.'); return; }
+      const actualDirection = actual > latestPrediction.avg ? 'HIGHER' : actual < latestPrediction.avg ? 'LOWER' : 'EQUAL';
+      const correct = latestPrediction.prediction === actualDirection;
+      history.unshift({ prediction: latestPrediction.prediction, actual, actualDirection, correct });
+      actualNext.value = '';
+      renderHistory();
+    }
+
+    function randomExample() {
+      const base = Math.random() * 40 + 10;
+      const vals = Array.from({ length: 5 }, (_, i) => {
+        const drift = i * (Math.random() * 2 - 1.2);
+        const noise = Math.random() * 8 - 4;
+        return Math.round((base + drift + noise) * 10) / 10;
+      });
+      inputs.forEach((input, i) => input.value = vals[i]);
+      runPrediction();
+    }
+
+    function clearInputs() {
+      inputs.forEach(i => i.value = '');
+      actualNext.value = '';
+      avgStat.textContent = '0.00';
+      slopeStat.textContent = '0.00';
+      volStat.textContent = '0.00';
+      momStat.textContent = '0.00';
+      predictionLabel.textContent = 'RUN A PREDICTION';
+      predictionLabel.className = 'prediction-label neutral';
+      confidenceText.textContent = '50%';
+      meterFill.style.width = '50%';
+      logicList.innerHTML = '<li>Enter values and click predict.</li>';
+      ctx.clearRect(0, 0, chart.width, chart.height);
+      latestPrediction = null;
+    }
+
+    function parseSeries(text) {
+      return text.split(/[\s,]+/).map(x => parseFloat(x)).filter(x => Number.isFinite(x));
+    }
+
+    function simulateSeries() {
+      const series = parseSeries(seriesInput.value);
+      if (series.length < 6) { alert('Enter at least 6 numbers to run a simulation.'); return; }
+      let windows = 0, correct = 0;
+      for (let i = 0; i <= series.length - 6; i++) {
+        const windowVals = series.slice(i, i + 5);
+        const next = series[i + 5];
+        const result = analyze(windowVals);
+        const actualDirection = next > result.avg ? 'HIGHER' : next < result.avg ? 'LOWER' : 'EQUAL';
+        if (result.prediction === actualDirection) correct += 1;
+        windows += 1;
+      }
+      simWindows.textContent = windows;
+      simAccuracy.textContent = `${((correct / windows) * 100).toFixed(1)}%`;
+    }
+
+    function loadSampleSeries() {
+      seriesInput.value = '12, 15, 14, 18, 16, 17, 13, 19, 20, 18, 21, 22, 20, 23, 24, 22, 25, 26, 24, 27';
+    }
+
+    function updateOnlineStatus() {
+      onlineStatus.textContent = navigator.onLine ? 'Online' : 'Offline';
+    }
+
+    function updateDisplayModeStatus() {
+      const standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+      displayModeStatus.textContent = standalone ? 'Standalone mode' : 'Browser mode';
+    }
+
+    async function registerSW() {
+      if (!('serviceWorker' in navigator)) {
+        swStatus.textContent = 'Service worker unsupported';
+        return;
+      }
+      try {
+        const reg = await navigator.serviceWorker.register('service-worker.js');
+        swStatus.textContent = `Service worker ready`;
+        if (reg.waiting) swStatus.textContent = 'Update available';
+      } catch (err) {
+        swStatus.textContent = 'Service worker failed';
+      }
+    }
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      installBanner.classList.add('show');
+    });
+
+    installBtn.addEventListener('click', async () => {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      await deferredPrompt.userChoice;
+      deferredPrompt = null;
+      installBanner.classList.remove('show');
+    });
+
+    window.addEventListener('appinstalled', () => {
+      installBanner.classList.remove('show');
+    });
+
+    predictBtn.addEventListener('click', runPrediction);
+    randomBtn.addEventListener('click', randomExample);
+    clearBtn.addEventListener('click', clearInputs);
+    saveResultBtn.addEventListener('click', saveActualResult);
+    resetHistoryBtn.addEventListener('click', () => {
+      history = [];
+      localStorage.removeItem('hlPredictorHistory');
+      renderHistory();
+    });
+    simulateBtn.addEventListener('click', simulateSeries);
+    loadSampleSeriesBtn.addEventListener('click', loadSampleSeries);
+
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+
+    renderHistory();
+    updateOnlineStatus();
+    updateDisplayModeStatus();
+    registerSW();
+    runPrediction();
+  </script>
+</body>
+</html>
