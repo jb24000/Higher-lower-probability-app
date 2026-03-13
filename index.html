@@ -379,6 +379,20 @@
           <div><label for="n5">Outcome 5</label><input id="n5" type="number" step="any" value="16" /></div>
         </div>
 
+        <div style="margin: 14px 0 10px; display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+          <div>
+            <label for="comparisonMode">Compare next outcome against</label>
+            <select id="comparisonMode">
+              <option value="windowAverage">Last 5 average</option>
+              <option value="manualThreshold">Custom threshold / season average</option>
+            </select>
+          </div>
+          <div>
+            <label for="comparisonValue">Custom threshold</label>
+            <input id="comparisonValue" type="number" step="any" value="7.5" placeholder="Enter season average or target number" />
+          </div>
+        </div>
+
         <div class="btn-row">
           <button class="primary" id="predictBtn">Predict Next Outcome</button>
           <button class="secondary" id="randomBtn">Load Random Example</button>
@@ -386,7 +400,7 @@
         </div>
 
         <div class="stat-grid">
-          <div class="stat"><div class="k">Average</div><div class="v" id="avgStat">15.00</div></div>
+          <div class="stat"><div class="k">Last 5 Average</div><div class="v" id="avgStat">15.00</div></div>
           <div class="stat"><div class="k">Trend Slope</div><div class="v" id="slopeStat">+1.00</div></div>
           <div class="stat"><div class="k">Volatility</div><div class="v" id="volStat">2.00</div></div>
           <div class="stat"><div class="k">Recent Momentum</div><div class="v" id="momStat">-2.00</div></div>
@@ -403,7 +417,7 @@
         <div class="prediction-box">
           <div class="prediction-head">
             <div>
-              <div class="tiny">Predicted next outcome vs average</div>
+              <div class="tiny" id="predictionContext">Predicted next outcome vs selected comparison value</div>
               <div class="prediction-label neutral" id="predictionLabel">RUN A PREDICTION</div>
             </div>
             <div style="text-align:right; min-width:120px;">
@@ -481,6 +495,8 @@
     const randomBtn = document.getElementById('randomBtn');
     const clearBtn = document.getElementById('clearBtn');
     const saveResultBtn = document.getElementById('saveResultBtn');
+    const comparisonMode = document.getElementById('comparisonMode');
+    const comparisonValue = document.getElementById('comparisonValue');
     const resetHistoryBtn = document.getElementById('resetHistoryBtn');
     const loadSampleSeriesBtn = document.getElementById('loadSampleSeriesBtn');
     const simulateBtn = document.getElementById('simulateBtn');
@@ -493,6 +509,7 @@
     const momStat = document.getElementById('momStat');
     const predictionLabel = document.getElementById('predictionLabel');
     const confidenceText = document.getElementById('confidenceText');
+    const predictionContext = document.getElementById('predictionContext');
     const meterFill = document.getElementById('meterFill');
     const logicList = document.getElementById('logicList');
     const actualNext = document.getElementById('actualNext');
@@ -537,13 +554,26 @@
     function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
     function sigmoid(x) { return 1 / (1 + Math.exp(-x)); }
 
+    function getComparisonTarget(values) {
+      const windowAvg = mean(values);
+      const mode = comparisonMode.value;
+      const manual = parseFloat(comparisonValue.value);
+      if (mode === 'manualThreshold' && Number.isFinite(manual)) {
+        return { target: manual, label: 'custom threshold', mode };
+      }
+      return { target: windowAvg, label: 'last 5 average', mode: 'windowAverage' };
+    }
+
     function analyze(values) {
       const avg = mean(values);
+      const comparison = getComparisonTarget(values);
+      const target = comparison.target;
       const s = slope(values);
       const vol = stdDev(values);
       const momentum = values[4] - values[3];
       const fullMomentum = values[4] - values[0];
       const distanceFromAvg = values[4] - avg;
+      const distanceFromTarget = values[4] - target;
       const range = Math.max(...values) - Math.min(...values);
 
       let score = 0;
@@ -562,10 +592,16 @@
       score += fullMomentum * 0.22;
       if (Math.abs(fullMomentum) > 0) logic.push(`Overall 5-point move is ${fullMomentum > 0 ? 'up' : 'down'} ${Math.abs(fullMomentum).toFixed(2)}.`);
 
-      score += (-distanceFromAvg) * 0.18;
-      if (distanceFromAvg > 0) logic.push(`Last value is above average by ${distanceFromAvg.toFixed(2)}, which slightly favors mean reversion.`);
-      else if (distanceFromAvg < 0) logic.push(`Last value is below average by ${Math.abs(distanceFromAvg).toFixed(2)}, which slightly favors a bounce.`);
-      else logic.push('Last value is exactly at the average.');
+      score += (-distanceFromTarget) * 0.18;
+      if (distanceFromTarget > 0) logic.push(`Last value is above the selected threshold by ${distanceFromTarget.toFixed(2)}, which slightly favors mean reversion.`);
+      else if (distanceFromTarget < 0) logic.push(`Last value is below the selected threshold by ${Math.abs(distanceFromTarget).toFixed(2)}, which slightly favors a bounce.`);
+      else logic.push('Last value is exactly at the selected threshold.');
+
+      if (comparison.mode === 'manualThreshold') {
+        logic.push(`Prediction is being judged against the custom threshold of ${target.toFixed(2)} instead of the last 5 average.`);
+      } else {
+        logic.push(`Prediction is being judged against the last 5 average of ${avg.toFixed(2)}.`);
+      }
 
       if (vol > 0) score += (momentum / vol) * 0.2;
       logic.push(`Volatility is ${vol.toFixed(2)} across a range of ${range.toFixed(2)}.`);
@@ -577,7 +613,7 @@
         ? Math.abs(probabilityHigher - 50) * 2
         : Math.max(probabilityHigher, probabilityLower);
 
-      return { avg, s, vol, momentum, prediction, probabilityHigher, probabilityLower, confidence, logic };
+      return { avg, s, vol, momentum, prediction, probabilityHigher, probabilityLower, confidence, logic, target, comparisonLabel: comparison.label, comparisonMode: comparison.mode };
     }
 
     function updateStats(result) {
@@ -586,6 +622,7 @@
       volStat.textContent = toFixedSafe(result.vol);
       momStat.textContent = `${result.momentum >= 0 ? '+' : ''}${toFixedSafe(result.momentum)}`;
 
+      predictionContext.textContent = `Predicted next outcome vs ${result.comparisonMode === 'manualThreshold' ? `custom threshold (${result.target.toFixed(2)})` : `last 5 average (${result.target.toFixed(2)})`}`;
       predictionLabel.textContent = result.prediction;
       predictionLabel.className = 'prediction-label ' + (
         result.prediction === 'HIGHER' ? 'higher' : result.prediction === 'LOWER' ? 'lower' : 'neutral'
@@ -678,7 +715,7 @@
       history.forEach((item, idx) => {
         if (item.correct) correct += 1;
         const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${idx + 1}</td><td>${item.prediction}</td><td>${Number(item.actual).toFixed(2)}</td><td>${item.actualDirection}</td><td>${item.correct ? 'Correct' : 'Miss'}</td>`;
+        tr.innerHTML = `<td>${idx + 1}</td><td>${item.prediction}</td><td>${Number(item.actual).toFixed(2)}</td><td>${item.actualDirection}${Number.isFinite(item.target) ? ` vs ${Number(item.target).toFixed(2)}` : ''}</td><td>${item.correct ? 'Correct' : 'Miss'}</td>`;
         historyBody.appendChild(tr);
       });
       const accuracy = (correct / history.length) * 100;
@@ -690,9 +727,9 @@
       if (!latestPrediction) { alert('Run a prediction first.'); return; }
       const actual = parseFloat(actualNext.value);
       if (!Number.isFinite(actual)) { alert('Enter the actual next outcome.'); return; }
-      const actualDirection = actual > latestPrediction.avg ? 'HIGHER' : actual < latestPrediction.avg ? 'LOWER' : 'EQUAL';
+      const actualDirection = actual > latestPrediction.target ? 'HIGHER' : actual < latestPrediction.target ? 'LOWER' : 'EQUAL';
       const correct = latestPrediction.prediction === actualDirection;
-      history.unshift({ prediction: latestPrediction.prediction, actual, actualDirection, correct });
+      history.unshift({ prediction: latestPrediction.prediction, actual, actualDirection, correct, target: latestPrediction.target });
       actualNext.value = '';
       renderHistory();
     }
@@ -711,10 +748,13 @@
     function clearInputs() {
       inputs.forEach(i => i.value = '');
       actualNext.value = '';
+      comparisonMode.value = 'windowAverage';
+      comparisonValue.value = '7.5';
       avgStat.textContent = '0.00';
       slopeStat.textContent = '0.00';
       volStat.textContent = '0.00';
       momStat.textContent = '0.00';
+      predictionContext.textContent = 'Predicted next outcome vs selected comparison value';
       predictionLabel.textContent = 'RUN A PREDICTION';
       predictionLabel.className = 'prediction-label neutral';
       confidenceText.textContent = '50%';
@@ -736,7 +776,7 @@
         const windowVals = series.slice(i, i + 5);
         const next = series[i + 5];
         const result = analyze(windowVals);
-        const actualDirection = next > result.avg ? 'HIGHER' : next < result.avg ? 'LOWER' : 'EQUAL';
+        const actualDirection = next > result.target ? 'HIGHER' : next < result.target ? 'LOWER' : 'EQUAL';
         if (result.prediction === actualDirection) correct += 1;
         windows += 1;
       }
@@ -789,6 +829,10 @@
       installBanner.classList.remove('show');
     });
 
+    comparisonMode.addEventListener('change', runPrediction);
+    comparisonValue.addEventListener('input', () => {
+      if (comparisonMode.value === 'manualThreshold') runPrediction();
+    });
     predictBtn.addEventListener('click', runPrediction);
     randomBtn.addEventListener('click', randomExample);
     clearBtn.addEventListener('click', clearInputs);
