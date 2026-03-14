@@ -343,12 +343,12 @@
         <p class="sub">
           Enter the last 5 outcomes and this app estimates whether the next outcome is more likely to be
           <strong>higher</strong> or <strong>lower</strong> than either the rolling average or a custom threshold.
-          Confidence is driven primarily by <strong>trend consistency</strong>, then adjusted by how far the projected next value is from the selected target.
+          Confidence is driven by trend agreement, recency weighting, volatility control, and how clearly the projected next value clears the selected target.
         </p>
         <div class="pill-row">
-          <span class="pill">5-Outcome Average</span>
-          <span class="pill">Custom Threshold</span>
-          <span class="pill">Trend Consistency</span>
+          <span class="pill">Weighted Recency</span>
+          <span class="pill">Trend Agreement</span>
+          <span class="pill">Mean Reversion</span>
           <span class="pill">Backtest Tracking</span>
           <span class="pill">Simulation Mode</span>
         </div>
@@ -362,9 +362,8 @@
       <div class="card">
         <h2>How the prediction works</h2>
         <p class="tiny">
-          This version uses a rules-based model. It first projects a likely next value using slope and momentum.
-          Then it compares that projected value to the selected target. The final confidence is mostly based on
-          trend consistency and partly on the projected separation from the target.
+          The model builds a projected next value using weighted recency, slope, recent momentum, and a mean reversion adjustment.
+          It then compares that projection to the selected target. Confidence rises when multiple signals agree and falls when the pattern is noisy.
         </p>
         <div class="badge">Installable + offline-ready + browser storage</div>
       </div>
@@ -391,7 +390,7 @@
           </div>
           <div>
             <label for="comparisonValue">Custom threshold</label>
-            <input id="comparisonValue" type="number" step="any" value="7.5" placeholder="Enter season average or target number" />
+            <input id="comparisonValue" type="number" step="any" value="10.5" placeholder="Enter season average or target number" />
           </div>
         </div>
 
@@ -544,6 +543,16 @@
       return arr.reduce((a, b) => a + b, 0) / arr.length;
     }
 
+    function weightedMean(arr, weights) {
+      let num = 0;
+      let den = 0;
+      for (let i = 0; i < arr.length; i++) {
+        num += arr[i] * weights[i];
+        den += weights[i];
+      }
+      return den === 0 ? 0 : num / den;
+    }
+
     function stdDev(arr) {
       const m = mean(arr);
       const variance = arr.reduce((sum, x) => sum + Math.pow(x - m, 2), 0) / arr.length;
@@ -555,18 +564,22 @@
       const yMean = mean(arr);
       let num = 0;
       let den = 0;
-
       arr.forEach((y, i) => {
         const x = i + 1;
         num += (x - xMean) * (y - yMean);
         den += Math.pow(x - xMean, 2);
       });
-
       return den === 0 ? 0 : num / den;
     }
 
     function clamp(value, min, max) {
       return Math.max(min, Math.min(max, value));
+    }
+
+    function signOf(x, eps = 0.0001) {
+      if (x > eps) return 1;
+      if (x < -eps) return -1;
+      return 0;
     }
 
     function getComparisonTarget(values) {
@@ -583,74 +596,107 @@
 
     function analyze(values) {
       const avg = mean(values);
+      const recencyWeights = [1, 2, 3, 4, 5];
+      const recencyAvg = weightedMean(values, recencyWeights);
       const comparison = getComparisonTarget(values);
       const target = comparison.target;
 
       const s = slope(values);
       const vol = stdDev(values);
-      const momentum = values[4] - values[3];
-      const fullMomentum = values[4] - values[0];
       const range = Math.max(...values) - Math.min(...values);
+
+      const d1 = values[4] - values[3];
+      const d2 = values[3] - values[2];
+      const d3 = values[2] - values[1];
+      const d4 = values[1] - values[0];
+
+      const recentMomentum = (d1 * 0.5) + (d2 * 0.3) + (d3 * 0.15) + (d4 * 0.05);
+      const fullMomentum = values[4] - values[0];
+      const meanReversion = values[4] - avg;
+      const recencyBias = recencyAvg - avg;
 
       const logic = [];
 
       const projectedNext =
         values[4] +
-        (s * 0.9) +
-        (momentum * 0.65) +
-        (fullMomentum * 0.22);
+        (s * 0.75) +
+        (recentMomentum * 0.60) +
+        (fullMomentum * 0.12) +
+        (recencyBias * 0.35) -
+        (meanReversion * 0.30);
 
-      let consistencyPoints = 0;
+      const slopeDir = signOf(s);
+      const recentDir = signOf(recentMomentum);
+      const fullDir = signOf(fullMomentum);
+      const lastMoveDir = signOf(d1);
 
-      if (s > 0) {
-        consistencyPoints += 25;
-        logic.push(`Positive slope (${s.toFixed(2)}) supports a higher next outcome.`);
-      } else if (s < 0) {
-        consistencyPoints += 25;
-        logic.push(`Negative slope (${s.toFixed(2)}) supports a lower next outcome.`);
-      } else {
-        logic.push('Flat slope gives no directional edge.');
+      let agreementPoints = 0;
+      let stableDirectionVotes = 0;
+
+      const dirs = [slopeDir, recentDir, fullDir, lastMoveDir];
+      const upVotes = dirs.filter(v => v === 1).length;
+      const downVotes = dirs.filter(v => v === -1).length;
+
+      if (slopeDir !== 0) agreementPoints += 20;
+      if (recentDir !== 0) agreementPoints += 20;
+      if (fullDir !== 0) agreementPoints += 15;
+      if (lastMoveDir !== 0) agreementPoints += 15;
+
+      if (upVotes >= 3 || downVotes >= 3) {
+        agreementPoints += 20;
+        stableDirectionVotes = 3;
+      } else if (upVotes === 2 || downVotes === 2) {
+        agreementPoints += 10;
+        stableDirectionVotes = 2;
       }
 
-      if (momentum > 0) {
-        consistencyPoints += 25;
-        logic.push(`Recent momentum is positive (${momentum.toFixed(2)}).`);
-      } else if (momentum < 0) {
-        consistencyPoints += 25;
-        logic.push(`Recent momentum is negative (${momentum.toFixed(2)}).`);
-      } else {
-        logic.push('Recent momentum is neutral.');
-      }
+      const moveMagnitudes = [Math.abs(d1), Math.abs(d2), Math.abs(d3), Math.abs(d4)];
+      const moveAvg = mean(moveMagnitudes);
+      const moveConsistency = moveAvg === 0
+        ? 0
+        : clamp(1 - (stdDev(moveMagnitudes) / Math.max(moveAvg, 0.0001)), 0, 1);
 
-      if ((s > 0 && fullMomentum > 0) || (s < 0 && fullMomentum < 0)) {
-        consistencyPoints += 25;
-        logic.push(`Overall 5-point move agrees with the slope (${fullMomentum.toFixed(2)}).`);
-      } else if (fullMomentum !== 0) {
-        logic.push(`Overall 5-point move conflicts with the slope (${fullMomentum.toFixed(2)}).`);
-      } else {
-        logic.push('Overall 5-point move is flat.');
-      }
+      agreementPoints += moveConsistency * 10;
 
-      const stabilityScore = clamp(1 - (vol / Math.max(range || 1, 1)), 0, 1);
-      consistencyPoints += stabilityScore * 25;
+      const normalizedVol = range === 0 ? 0 : vol / Math.max(range, 1);
+      const volatilityPenalty = clamp(normalizedVol * 18, 0, 18);
+
+      let trendConsistency = agreementPoints - volatilityPenalty;
+      trendConsistency = clamp(Math.round(trendConsistency), 1, 99);
+
+      if (s > 0) logic.push(`Positive slope (${s.toFixed(2)}) supports a higher next outcome.`);
+      else if (s < 0) logic.push(`Negative slope (${s.toFixed(2)}) supports a lower next outcome.`);
+      else logic.push('Flat slope gives no directional edge.');
+
+      logic.push(`Weighted recent momentum is ${recentMomentum >= 0 ? '+' : ''}${recentMomentum.toFixed(2)}.`);
+      logic.push(`Full 5-point move is ${fullMomentum >= 0 ? '+' : ''}${fullMomentum.toFixed(2)}.`);
+      logic.push(`Weighted recency average is ${recencyAvg.toFixed(2)} vs simple average ${avg.toFixed(2)}.`);
+      logic.push(`Mean reversion adjustment is ${(-meanReversion * 0.30) >= 0 ? '+' : ''}${(-meanReversion * 0.30).toFixed(2)}.`);
       logic.push(`Volatility is ${vol.toFixed(2)} across a range of ${range.toFixed(2)}.`);
 
-      const trendConsistency = clamp(consistencyPoints, 0, 100);
       const projectedGap = projectedNext - target;
 
       let prediction = 'TOO CLOSE TO CALL';
-      if (projectedGap > 0.15) prediction = 'HIGHER';
-      else if (projectedGap < -0.15) prediction = 'LOWER';
+      if (projectedGap > 0.20) prediction = 'HIGHER';
+      else if (projectedGap < -0.20) prediction = 'LOWER';
 
-      const gapScale = Math.max(vol, 1);
+      const gapScale = Math.max(vol * 0.9, 0.75);
       const gapConfidence = clamp((Math.abs(projectedGap) / gapScale) * 100, 0, 100);
 
       let confidence;
       if (prediction === 'TOO CLOSE TO CALL') {
-        confidence = Math.round(trendConsistency * 0.5);
+        confidence = Math.round((trendConsistency * 0.30) + (gapConfidence * 0.20));
       } else {
-        confidence = Math.round((trendConsistency * 0.7) + (gapConfidence * 0.3));
+        confidence = Math.round((trendConsistency * 0.55) + (gapConfidence * 0.45));
+
+        if (Math.abs(projectedGap) < 0.60) confidence -= 14;
+        else if (Math.abs(projectedGap) < 1.10) confidence -= 8;
+
+        if (stableDirectionVotes < 3) confidence -= 5;
+        if (normalizedVol > 0.38) confidence -= 6;
       }
+
+      confidence = clamp(confidence, 1, 99);
 
       if (comparison.mode === 'manualThreshold') {
         logic.push(`Prediction is being judged against the custom threshold of ${target.toFixed(2)}.`);
@@ -661,6 +707,7 @@
       logic.push(`Projected next outcome is ${projectedNext.toFixed(2)}.`);
       logic.push(`Projected gap vs target is ${projectedGap >= 0 ? '+' : ''}${projectedGap.toFixed(2)}.`);
       logic.push(`Trend consistency score is ${Math.round(trendConsistency)}%.`);
+      logic.push(`Gap confidence vs selected target is ${Math.round(gapConfidence)}%.`);
 
       let probabilityHigher = 50;
       if (prediction === 'HIGHER') {
@@ -675,7 +722,7 @@
         avg,
         s,
         vol,
-        momentum,
+        momentum: recentMomentum,
         prediction,
         probabilityHigher,
         probabilityLower,
@@ -685,6 +732,7 @@
         projectedNext,
         projectedGap,
         trendConsistency,
+        gapConfidence,
         comparisonLabel: comparison.label,
         comparisonMode: comparison.mode
       };
@@ -763,6 +811,7 @@
       values.forEach((v, i) => {
         const x = pad + i * xStep;
         const y = yFor(v);
+
         ctx.fillStyle = '#2ecc71';
         ctx.beginPath();
         ctx.arc(x, y, 5, 0, Math.PI * 2);
@@ -870,7 +919,7 @@
       inputs.forEach(i => i.value = '');
       actualNext.value = '';
       comparisonMode.value = 'windowAverage';
-      comparisonValue.value = '7.5';
+      comparisonValue.value = '10.5';
 
       avgStat.textContent = '0.00';
       slopeStat.textContent = '0.00';
@@ -923,7 +972,7 @@
     }
 
     function loadSampleSeries() {
-      seriesInput.value = '12, 15, 14, 18, 16, 17, 13, 19, 20, 18, 21, 22, 20, 23, 24, 22, 25, 26, 24, 27';
+      seriesInput.value = '7, 7.5, 8, 8.5, 9, 9.2, 9.5, 9.8, 10.1, 10.4, 10.0, 9.7, 9.9, 10.2, 10.6, 10.9, 10.5, 10.1, 10.4, 10.8';
     }
 
     function updateOnlineStatus() {
