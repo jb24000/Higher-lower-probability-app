@@ -341,13 +341,14 @@
       <div class="card">
         <h1>Higher / Lower Probability Predictor</h1>
         <p class="sub">
-          Enter the last 5 outcomes and this app calculates the rolling average, reads momentum and volatility,
-          and estimates whether the next outcome is more likely to be <strong>higher</strong> or <strong>lower</strong> than that average.
+          Enter the last 5 outcomes and this app estimates whether the next outcome is more likely to be
+          <strong>higher</strong> or <strong>lower</strong> than either the rolling average or a custom threshold.
+          Confidence is driven primarily by <strong>trend consistency</strong>, then adjusted by how far the projected next value is from the selected target.
         </p>
         <div class="pill-row">
           <span class="pill">5-Outcome Average</span>
-          <span class="pill">Trend + Momentum</span>
-          <span class="pill">Confidence Meter</span>
+          <span class="pill">Custom Threshold</span>
+          <span class="pill">Trend Consistency</span>
           <span class="pill">Backtest Tracking</span>
           <span class="pill">Simulation Mode</span>
         </div>
@@ -361,8 +362,9 @@
       <div class="card">
         <h2>How the prediction works</h2>
         <p class="tiny">
-          This version is a complete PWA-ready app shell. It uses a weighted rules engine rather than a trained machine-learning model.
-          It scores the pattern based on slope, recent momentum, distance from average, and volatility, then converts that score into a probability.
+          This version uses a rules-based model. It first projects a likely next value using slope and momentum.
+          Then it compares that projected value to the selected target. The final confidence is mostly based on
+          trend consistency and partly on the projected separation from the target.
         </p>
         <div class="badge">Installable + offline-ready + browser storage</div>
       </div>
@@ -444,7 +446,7 @@
               <th>#</th>
               <th>Prediction</th>
               <th>Actual</th>
-              <th>Against Avg</th>
+              <th>Against Target</th>
               <th>Result</th>
             </tr>
           </thead>
@@ -483,7 +485,7 @@
           <li><strong>icons/</strong> — 192 and 512 PNG icons</li>
         </ul>
         <div class="footer-note">
-          This canvas file is updated to be PWA-ready. To fully install in a browser, publish the companion manifest, service worker, and icons alongside this file.
+          Publish this file with the companion manifest, service worker, and icons to install it as a PWA.
         </div>
       </div>
     </section>
@@ -529,38 +531,53 @@
     let deferredPrompt = null;
     let history = JSON.parse(localStorage.getItem('hlPredictorHistory') || '[]');
 
-    function toFixedSafe(n, digits = 2) { return Number.isFinite(n) ? n.toFixed(digits) : '0.00'; }
+    function toFixedSafe(n, digits = 2) {
+      return Number.isFinite(n) ? n.toFixed(digits) : '0.00';
+    }
+
     function getValues() {
       const vals = inputs.map(i => parseFloat(i.value));
       return vals.every(v => Number.isFinite(v)) ? vals : null;
     }
-    function mean(arr) { return arr.reduce((a, b) => a + b, 0) / arr.length; }
+
+    function mean(arr) {
+      return arr.reduce((a, b) => a + b, 0) / arr.length;
+    }
+
     function stdDev(arr) {
       const m = mean(arr);
       const variance = arr.reduce((sum, x) => sum + Math.pow(x - m, 2), 0) / arr.length;
       return Math.sqrt(variance);
     }
+
     function slope(arr) {
       const xMean = 3;
       const yMean = mean(arr);
-      let num = 0, den = 0;
+      let num = 0;
+      let den = 0;
+
       arr.forEach((y, i) => {
         const x = i + 1;
         num += (x - xMean) * (y - yMean);
         den += Math.pow(x - xMean, 2);
       });
+
       return den === 0 ? 0 : num / den;
     }
-    function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
-    function sigmoid(x) { return 1 / (1 + Math.exp(-x)); }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
 
     function getComparisonTarget(values) {
       const windowAvg = mean(values);
       const mode = comparisonMode.value;
       const manual = parseFloat(comparisonValue.value);
+
       if (mode === 'manualThreshold' && Number.isFinite(manual)) {
         return { target: manual, label: 'custom threshold', mode };
       }
+
       return { target: windowAvg, label: 'last 5 average', mode: 'windowAverage' };
     }
 
@@ -568,52 +585,109 @@
       const avg = mean(values);
       const comparison = getComparisonTarget(values);
       const target = comparison.target;
+
       const s = slope(values);
       const vol = stdDev(values);
       const momentum = values[4] - values[3];
       const fullMomentum = values[4] - values[0];
-      const distanceFromAvg = values[4] - avg;
-      const distanceFromTarget = values[4] - target;
       const range = Math.max(...values) - Math.min(...values);
 
-      let score = 0;
       const logic = [];
 
-      score += s * 0.9;
-      if (s > 0) logic.push(`Positive slope (${s.toFixed(2)}) supports a higher next outcome.`);
-      else if (s < 0) logic.push(`Negative slope (${s.toFixed(2)}) supports a lower next outcome.`);
-      else logic.push('Flat slope gives no directional edge.');
+      const projectedNext =
+        values[4] +
+        (s * 0.9) +
+        (momentum * 0.65) +
+        (fullMomentum * 0.22);
 
-      score += momentum * 0.65;
-      if (momentum > 0) logic.push(`Recent momentum is positive (${momentum.toFixed(2)}).`);
-      else if (momentum < 0) logic.push(`Recent momentum is negative (${momentum.toFixed(2)}).`);
-      else logic.push('Recent momentum is neutral.');
+      let consistencyPoints = 0;
 
-      score += fullMomentum * 0.22;
-      if (Math.abs(fullMomentum) > 0) logic.push(`Overall 5-point move is ${fullMomentum > 0 ? 'up' : 'down'} ${Math.abs(fullMomentum).toFixed(2)}.`);
+      if (s > 0) {
+        consistencyPoints += 25;
+        logic.push(`Positive slope (${s.toFixed(2)}) supports a higher next outcome.`);
+      } else if (s < 0) {
+        consistencyPoints += 25;
+        logic.push(`Negative slope (${s.toFixed(2)}) supports a lower next outcome.`);
+      } else {
+        logic.push('Flat slope gives no directional edge.');
+      }
 
-      score += (-distanceFromTarget) * 0.18;
-      if (distanceFromTarget > 0) logic.push(`Last value is above the selected threshold by ${distanceFromTarget.toFixed(2)}, which slightly favors mean reversion.`);
-      else if (distanceFromTarget < 0) logic.push(`Last value is below the selected threshold by ${Math.abs(distanceFromTarget).toFixed(2)}, which slightly favors a bounce.`);
-      else logic.push('Last value is exactly at the selected threshold.');
+      if (momentum > 0) {
+        consistencyPoints += 25;
+        logic.push(`Recent momentum is positive (${momentum.toFixed(2)}).`);
+      } else if (momentum < 0) {
+        consistencyPoints += 25;
+        logic.push(`Recent momentum is negative (${momentum.toFixed(2)}).`);
+      } else {
+        logic.push('Recent momentum is neutral.');
+      }
+
+      if ((s > 0 && fullMomentum > 0) || (s < 0 && fullMomentum < 0)) {
+        consistencyPoints += 25;
+        logic.push(`Overall 5-point move agrees with the slope (${fullMomentum.toFixed(2)}).`);
+      } else if (fullMomentum !== 0) {
+        logic.push(`Overall 5-point move conflicts with the slope (${fullMomentum.toFixed(2)}).`);
+      } else {
+        logic.push('Overall 5-point move is flat.');
+      }
+
+      const stabilityScore = clamp(1 - (vol / Math.max(range || 1, 1)), 0, 1);
+      consistencyPoints += stabilityScore * 25;
+      logic.push(`Volatility is ${vol.toFixed(2)} across a range of ${range.toFixed(2)}.`);
+
+      const trendConsistency = clamp(consistencyPoints, 0, 100);
+      const projectedGap = projectedNext - target;
+
+      let prediction = 'TOO CLOSE TO CALL';
+      if (projectedGap > 0.15) prediction = 'HIGHER';
+      else if (projectedGap < -0.15) prediction = 'LOWER';
+
+      const gapScale = Math.max(vol, 1);
+      const gapConfidence = clamp((Math.abs(projectedGap) / gapScale) * 100, 0, 100);
+
+      let confidence;
+      if (prediction === 'TOO CLOSE TO CALL') {
+        confidence = Math.round(trendConsistency * 0.5);
+      } else {
+        confidence = Math.round((trendConsistency * 0.7) + (gapConfidence * 0.3));
+      }
 
       if (comparison.mode === 'manualThreshold') {
-        logic.push(`Prediction is being judged against the custom threshold of ${target.toFixed(2)} instead of the last 5 average.`);
+        logic.push(`Prediction is being judged against the custom threshold of ${target.toFixed(2)}.`);
       } else {
         logic.push(`Prediction is being judged against the last 5 average of ${avg.toFixed(2)}.`);
       }
 
-      if (vol > 0) score += (momentum / vol) * 0.2;
-      logic.push(`Volatility is ${vol.toFixed(2)} across a range of ${range.toFixed(2)}.`);
+      logic.push(`Projected next outcome is ${projectedNext.toFixed(2)}.`);
+      logic.push(`Projected gap vs target is ${projectedGap >= 0 ? '+' : ''}${projectedGap.toFixed(2)}.`);
+      logic.push(`Trend consistency score is ${Math.round(trendConsistency)}%.`);
 
-      const probabilityHigher = clamp(sigmoid(score) * 100, 1, 99);
+      let probabilityHigher = 50;
+      if (prediction === 'HIGHER') {
+        probabilityHigher = clamp(50 + confidence / 2, 1, 99);
+      } else if (prediction === 'LOWER') {
+        probabilityHigher = clamp(50 - confidence / 2, 1, 99);
+      }
+
       const probabilityLower = 100 - probabilityHigher;
-      const prediction = probabilityHigher > 52 ? 'HIGHER' : probabilityHigher < 48 ? 'LOWER' : 'TOO CLOSE TO CALL';
-      const confidence = prediction === 'TOO CLOSE TO CALL'
-        ? Math.abs(probabilityHigher - 50) * 2
-        : Math.max(probabilityHigher, probabilityLower);
 
-      return { avg, s, vol, momentum, prediction, probabilityHigher, probabilityLower, confidence, logic, target, comparisonLabel: comparison.label, comparisonMode: comparison.mode };
+      return {
+        avg,
+        s,
+        vol,
+        momentum,
+        prediction,
+        probabilityHigher,
+        probabilityLower,
+        confidence,
+        logic,
+        target,
+        projectedNext,
+        projectedGap,
+        trendConsistency,
+        comparisonLabel: comparison.label,
+        comparisonMode: comparison.mode
+      };
     }
 
     function updateStats(result) {
@@ -622,11 +696,17 @@
       volStat.textContent = toFixedSafe(result.vol);
       momStat.textContent = `${result.momentum >= 0 ? '+' : ''}${toFixedSafe(result.momentum)}`;
 
-      predictionContext.textContent = `Predicted next outcome vs ${result.comparisonMode === 'manualThreshold' ? `custom threshold (${result.target.toFixed(2)})` : `last 5 average (${result.target.toFixed(2)})`}`;
+      predictionContext.textContent =
+        `Predicted next outcome vs ${result.comparisonMode === 'manualThreshold'
+          ? `custom threshold (${result.target.toFixed(2)})`
+          : `last 5 average (${result.target.toFixed(2)})`}`;
+
       predictionLabel.textContent = result.prediction;
       predictionLabel.className = 'prediction-label ' + (
-        result.prediction === 'HIGHER' ? 'higher' : result.prediction === 'LOWER' ? 'lower' : 'neutral'
+        result.prediction === 'HIGHER' ? 'higher' :
+        result.prediction === 'LOWER' ? 'lower' : 'neutral'
       );
+
       confidenceText.textContent = `${Math.round(result.confidence)}%`;
       meterFill.style.width = `${result.probabilityHigher}%`;
 
@@ -638,12 +718,14 @@
       });
     }
 
-    function drawChart(values, avg) {
-      const w = chart.width, h = chart.height;
+    function drawChart(values, target, comparisonMode) {
+      const w = chart.width;
+      const h = chart.height;
       ctx.clearRect(0, 0, w, h);
+
       const pad = 34;
-      const minVal = Math.min(...values, avg) - 2;
-      const maxVal = Math.max(...values, avg) + 2;
+      const minVal = Math.min(...values, target) - 2;
+      const maxVal = Math.max(...values, target) + 2;
       const span = Math.max(1, maxVal - minVal);
       const xStep = (w - pad * 2) / (values.length - 1);
       const yFor = (v) => h - pad - ((v - minVal) / span) * (h - pad * 2);
@@ -658,12 +740,12 @@
         ctx.stroke();
       }
 
-      ctx.strokeStyle = '#f1c40f';
+      ctx.strokeStyle = comparisonMode === 'manualThreshold' ? '#ff6b6b' : '#f1c40f';
       ctx.setLineDash([6, 6]);
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(pad, yFor(avg));
-      ctx.lineTo(w - pad, yFor(avg));
+      ctx.moveTo(pad, yFor(target));
+      ctx.lineTo(w - pad, yFor(target));
       ctx.stroke();
       ctx.setLineDash([]);
 
@@ -673,7 +755,8 @@
       values.forEach((v, i) => {
         const x = pad + i * xStep;
         const y = yFor(v);
-        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
       });
       ctx.stroke();
 
@@ -684,24 +767,33 @@
         ctx.beginPath();
         ctx.arc(x, y, 5, 0, Math.PI * 2);
         ctx.fill();
+
         ctx.fillStyle = '#9db0d1';
         ctx.font = '12px Inter, Arial';
         ctx.fillText(`O${i + 1}`, x - 10, h - 10);
         ctx.fillText(v.toFixed(1), x - 12, y - 10);
       });
 
-      ctx.fillStyle = '#f1c40f';
+      ctx.fillStyle = comparisonMode === 'manualThreshold' ? '#ff6b6b' : '#f1c40f';
       ctx.font = '12px Inter, Arial';
-      ctx.fillText(`Avg ${avg.toFixed(2)}`, w - 95, yFor(avg) - 8);
+      ctx.fillText(
+        `${comparisonMode === 'manualThreshold' ? 'Threshold' : 'Avg'} ${target.toFixed(2)}`,
+        w - 120,
+        yFor(target) - 8
+      );
     }
 
     function runPrediction() {
       const values = getValues();
-      if (!values) { alert('Please enter all 5 numeric outcomes.'); return; }
+      if (!values) {
+        alert('Please enter all 5 numeric outcomes.');
+        return;
+      }
+
       const result = analyze(values);
       latestPrediction = { values, ...result };
       updateStats(result);
-      drawChart(values, result.avg);
+      drawChart(values, result.target, result.comparisonMode);
     }
 
     function renderHistory() {
@@ -710,26 +802,54 @@
         accuracyNote.textContent = 'Accuracy: no saved results yet.';
         return;
       }
+
       historyBody.innerHTML = '';
       let correct = 0;
+
       history.forEach((item, idx) => {
         if (item.correct) correct += 1;
         const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${idx + 1}</td><td>${item.prediction}</td><td>${Number(item.actual).toFixed(2)}</td><td>${item.actualDirection}${Number.isFinite(item.target) ? ` vs ${Number(item.target).toFixed(2)}` : ''}</td><td>${item.correct ? 'Correct' : 'Miss'}</td>`;
+        tr.innerHTML = `
+          <td>${idx + 1}</td>
+          <td>${item.prediction}</td>
+          <td>${Number(item.actual).toFixed(2)}</td>
+          <td>${item.actualDirection}${Number.isFinite(item.target) ? ` vs ${Number(item.target).toFixed(2)}` : ''}</td>
+          <td>${item.correct ? 'Correct' : 'Miss'}</td>
+        `;
         historyBody.appendChild(tr);
       });
+
       const accuracy = (correct / history.length) * 100;
       accuracyNote.textContent = `Accuracy: ${correct}/${history.length} correct (${accuracy.toFixed(1)}%).`;
       localStorage.setItem('hlPredictorHistory', JSON.stringify(history));
     }
 
     function saveActualResult() {
-      if (!latestPrediction) { alert('Run a prediction first.'); return; }
+      if (!latestPrediction) {
+        alert('Run a prediction first.');
+        return;
+      }
+
       const actual = parseFloat(actualNext.value);
-      if (!Number.isFinite(actual)) { alert('Enter the actual next outcome.'); return; }
-      const actualDirection = actual > latestPrediction.target ? 'HIGHER' : actual < latestPrediction.target ? 'LOWER' : 'EQUAL';
+      if (!Number.isFinite(actual)) {
+        alert('Enter the actual next outcome.');
+        return;
+      }
+
+      const actualDirection =
+        actual > latestPrediction.target ? 'HIGHER' :
+        actual < latestPrediction.target ? 'LOWER' : 'EQUAL';
+
       const correct = latestPrediction.prediction === actualDirection;
-      history.unshift({ prediction: latestPrediction.prediction, actual, actualDirection, correct, target: latestPrediction.target });
+
+      history.unshift({
+        prediction: latestPrediction.prediction,
+        actual,
+        actualDirection,
+        correct,
+        target: latestPrediction.target
+      });
+
       actualNext.value = '';
       renderHistory();
     }
@@ -741,6 +861,7 @@
         const noise = Math.random() * 8 - 4;
         return Math.round((base + drift + noise) * 10) / 10;
       });
+
       inputs.forEach((input, i) => input.value = vals[i]);
       runPrediction();
     }
@@ -750,36 +871,53 @@
       actualNext.value = '';
       comparisonMode.value = 'windowAverage';
       comparisonValue.value = '7.5';
+
       avgStat.textContent = '0.00';
       slopeStat.textContent = '0.00';
       volStat.textContent = '0.00';
       momStat.textContent = '0.00';
+
       predictionContext.textContent = 'Predicted next outcome vs selected comparison value';
       predictionLabel.textContent = 'RUN A PREDICTION';
       predictionLabel.className = 'prediction-label neutral';
       confidenceText.textContent = '50%';
       meterFill.style.width = '50%';
       logicList.innerHTML = '<li>Enter values and click predict.</li>';
+
       ctx.clearRect(0, 0, chart.width, chart.height);
       latestPrediction = null;
     }
 
     function parseSeries(text) {
-      return text.split(/[\s,]+/).map(x => parseFloat(x)).filter(x => Number.isFinite(x));
+      return text
+        .split(/[\s,]+/)
+        .map(x => parseFloat(x))
+        .filter(x => Number.isFinite(x));
     }
 
     function simulateSeries() {
       const series = parseSeries(seriesInput.value);
-      if (series.length < 6) { alert('Enter at least 6 numbers to run a simulation.'); return; }
-      let windows = 0, correct = 0;
+      if (series.length < 6) {
+        alert('Enter at least 6 numbers to run a simulation.');
+        return;
+      }
+
+      let windows = 0;
+      let correct = 0;
+
       for (let i = 0; i <= series.length - 6; i++) {
         const windowVals = series.slice(i, i + 5);
         const next = series[i + 5];
         const result = analyze(windowVals);
-        const actualDirection = next > result.target ? 'HIGHER' : next < result.target ? 'LOWER' : 'EQUAL';
+
+        const actualDirection =
+          next > result.target ? 'HIGHER' :
+          next < result.target ? 'LOWER' : 'EQUAL';
+
         if (result.prediction === actualDirection) correct += 1;
         windows += 1;
       }
+
       simWindows.textContent = windows;
       simAccuracy.textContent = `${((correct / windows) * 100).toFixed(1)}%`;
     }
@@ -793,7 +931,10 @@
     }
 
     function updateDisplayModeStatus() {
-      const standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+      const standalone =
+        window.matchMedia('(display-mode: standalone)').matches ||
+        window.navigator.standalone === true;
+
       displayModeStatus.textContent = standalone ? 'Standalone mode' : 'Browser mode';
     }
 
@@ -802,9 +943,10 @@
         swStatus.textContent = 'Service worker unsupported';
         return;
       }
+
       try {
         const reg = await navigator.serviceWorker.register('service-worker.js');
-        swStatus.textContent = `Service worker ready`;
+        swStatus.textContent = 'Service worker ready';
         if (reg.waiting) swStatus.textContent = 'Update available';
       } catch (err) {
         swStatus.textContent = 'Service worker failed';
@@ -833,15 +975,18 @@
     comparisonValue.addEventListener('input', () => {
       if (comparisonMode.value === 'manualThreshold') runPrediction();
     });
+
     predictBtn.addEventListener('click', runPrediction);
     randomBtn.addEventListener('click', randomExample);
     clearBtn.addEventListener('click', clearInputs);
     saveResultBtn.addEventListener('click', saveActualResult);
+
     resetHistoryBtn.addEventListener('click', () => {
       history = [];
       localStorage.removeItem('hlPredictorHistory');
       renderHistory();
     });
+
     simulateBtn.addEventListener('click', simulateSeries);
     loadSampleSeriesBtn.addEventListener('click', loadSampleSeries);
 
