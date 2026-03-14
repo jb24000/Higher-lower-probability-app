@@ -419,15 +419,16 @@
           Paste your last <strong>20 outcomes</strong> from oldest to newest.
           The app projects the next number, puts the most weight on the newest
           values, blends in the <strong>current season average</strong>, builds
-          a volatility band, and compares the projected next number to your
-          <strong>custom threshold</strong>.
+          a <strong>hybrid volatility band</strong> that works better across both
+          low-count and higher-count stats, and compares the projected next number
+          to your <strong>custom threshold</strong>.
         </p>
 
         <div class="pill-row">
           <span class="pill">20 Outcomes</span>
           <span class="pill">Season Average Anchor</span>
           <span class="pill">Heavy Weight on Last 5</span>
-          <span class="pill">Projected Next Number</span>
+          <span class="pill">Hybrid Volatility</span>
           <span class="pill">Weak / Strong Signal</span>
         </div>
 
@@ -671,8 +672,8 @@
 
         <div class="footer-note">
           This version uses a 20-number input model with heavier weight on the
-          newest 5 values and a season-average anchor to keep the projection
-          tighter.
+          newest 5 values, a season-average anchor, and a hybrid volatility model
+          so it behaves better for both low-count props and higher-count stats.
         </div>
       </div>
     </section>
@@ -729,7 +730,7 @@
 
     let latestPrediction = null;
     let deferredPrompt = null;
-    let history = JSON.parse(localStorage.getItem("hlPredictorHistory20Season") || "[]");
+    let history = JSON.parse(localStorage.getItem("hlPredictorHistory20SeasonHybridVol") || "[]");
 
     function toFixedSafe(n, digits = 2) {
       return Number.isFinite(n) ? n.toFixed(digits) : "0.00";
@@ -822,7 +823,6 @@
       const avgFirst10 = mean(oldest10);
       const avgPrev5 = mean(prev5);
       const avgLast5 = mean(last5);
-      const avgLast10 = mean(last10);
 
       const weights20 = [
         1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
@@ -857,10 +857,20 @@
         (recentMomentum * 0.10) -
         (seasonGap * 0.10);
 
-      const volatility =
+      const rollingVolatility =
         (vol5 * 0.50) +
         (vol10 * 0.30) +
         (vol20 * 0.20);
+
+      const scaleVolatility = Math.sqrt(Math.max(projectedNext, 0));
+      const percentVolatility = Math.abs(projectedNext) * 0.18;
+
+      const volatility = Math.max(
+        (rollingVolatility * 0.50) +
+        (scaleVolatility * 0.25) +
+        (percentVolatility * 0.25),
+        0.35
+      );
 
       const rangeLow = projectedNext - volatility;
       const rangeHigh = projectedNext + volatility;
@@ -917,13 +927,14 @@
 
       const logic = [];
       logic.push(`Projected next number is ${projectedNext.toFixed(2)}.`);
-      logic.push(`Volatility band is ±${volatility.toFixed(2)}.`);
+      logic.push(`Hybrid volatility band is ±${volatility.toFixed(2)}.`);
       logic.push(`Expected range is ${rangeLow.toFixed(2)} to ${rangeHigh.toFixed(2)}.`);
       logic.push(`Season average baseline is ${seasonAverage.toFixed(2)}.`);
       logic.push(`Recent 5 average is ${avgLast5.toFixed(2)}. Weighted 20 average is ${weightedAvg.toFixed(2)}.`);
       logic.push(`Slope (5 / 10 / 20) = ${slope5.toFixed(2)} / ${slope10.toFixed(2)} / ${slope20.toFixed(2)}.`);
       logic.push(`Recent momentum is ${recentMomentum >= 0 ? "+" : ""}${recentMomentum.toFixed(2)} over the newest 5 values.`);
       logic.push(`Latest value is ${latestValue.toFixed(2)}, which is ${seasonGap >= 0 ? "+" : ""}${seasonGap.toFixed(2)} from season average.`);
+      logic.push(`Rolling volatility = ${rollingVolatility.toFixed(2)}, scale volatility = ${scaleVolatility.toFixed(2)}, percent volatility = ${percentVolatility.toFixed(2)}.`);
 
       if (comparison.mode === "manualThreshold") {
         logic.push(`Projected next is compared to the custom threshold of ${target.toFixed(2)}.`);
@@ -1134,7 +1145,7 @@
 
       const accuracy = (correct / history.length) * 100;
       accuracyNote.textContent = `Accuracy: ${correct}/${history.length} correct (${accuracy.toFixed(1)}%).`;
-      localStorage.setItem("hlPredictorHistory20Season", JSON.stringify(history));
+      localStorage.setItem("hlPredictorHistory20SeasonHybridVol", JSON.stringify(history));
     }
 
     function saveActualResult() {
@@ -1308,7 +1319,7 @@
     saveResultBtn.addEventListener("click", saveActualResult);
     resetHistoryBtn.addEventListener("click", () => {
       history = [];
-      localStorage.removeItem("hlPredictorHistory20Season");
+      localStorage.removeItem("hlPredictorHistory20SeasonHybridVol");
       renderHistory();
     });
 
