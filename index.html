@@ -417,11 +417,11 @@
         <h1>Higher / Lower Probability Predictor</h1>
         <p class="sub">
           Paste your last <strong>20 outcomes</strong> from oldest to newest.
-          The app projects the next number, puts the most weight on the newest
-          values, blends in the <strong>current season average</strong>, builds
-          a <strong>hybrid volatility band</strong> that works better across both
-          low-count and higher-count stats, and compares the projected next number
-          to your <strong>custom threshold</strong>.
+          The app projects the next number, weights the newest values more heavily,
+          blends in the <strong>current season average</strong>, builds a
+          <strong>hybrid volatility band</strong> for both low-count and higher-count stats,
+          and compares the projected next number to your
+          <strong>custom threshold</strong>.
         </p>
 
         <div class="pill-row">
@@ -442,15 +442,15 @@
       <div class="card">
         <h2>How to read the result</h2>
         <p class="tiny">
-          The main answer is the <strong>projected next number</strong>. The
-          app then shows the <strong>volatility</strong> as an error band around
-          that projection.
+          The main answer is the <strong>projected next number</strong>. The app
+          then shows the <strong>volatility</strong> as an error band around that
+          projection.
         </p>
         <p class="tiny">
           Example: if the projected next number is <strong>10.0</strong> and
           volatility is <strong>±0.5</strong>, the expected range is
-          <strong>9.5 to 10.5</strong>. The app compares the projected next
-          number to your custom threshold and labels it
+          <strong>9.5 to 10.5</strong>. The app compares the projected next number
+          to your custom threshold and labels it
           <strong>HIGHER</strong> or <strong>LOWER</strong>, plus
           <strong>WEAK</strong> or <strong>STRONG</strong>.
         </p>
@@ -672,8 +672,8 @@
 
         <div class="footer-note">
           This version uses a 20-number input model with heavier weight on the
-          newest 5 values, a season-average anchor, and a hybrid volatility model
-          so it behaves better for both low-count props and higher-count stats.
+          newest 5 values, a season-average anchor, a hybrid volatility model,
+          and confidence logic that stays aligned with the direction call.
         </div>
       </div>
     </section>
@@ -730,7 +730,9 @@
 
     let latestPrediction = null;
     let deferredPrompt = null;
-    let history = JSON.parse(localStorage.getItem("hlPredictorHistory20SeasonHybridVol") || "[]");
+    let history = JSON.parse(
+      localStorage.getItem("hlPredictorHistory20SeasonHybridVolV2") || "[]"
+    );
 
     function toFixedSafe(n, digits = 2) {
       return Number.isFinite(n) ? n.toFixed(digits) : "0.00";
@@ -821,7 +823,6 @@
 
       const avg20 = mean(values);
       const avgFirst10 = mean(oldest10);
-      const avgPrev5 = mean(prev5);
       const avgLast5 = mean(last5);
 
       const weights20 = [
@@ -878,22 +879,13 @@
       const prediction = projectedNext >= target ? "HIGHER" : "LOWER";
 
       let strength = "WEAK";
-      if (prediction === "LOWER" && rangeHigh < target) {
-        strength = "STRONG";
-      }
-      if (prediction === "HIGHER" && rangeLow > target) {
-        strength = "STRONG";
-      }
+      if (prediction === "LOWER" && rangeHigh < target) strength = "STRONG";
+      if (prediction === "HIGHER" && rangeLow > target) strength = "STRONG";
 
       const gap = Math.abs(projectedNext - target);
-      const gapConfidence = clamp(
-        (gap / Math.max(volatility, 0.0001)) * 100,
-        1,
-        99
-      );
+      const normalizedGap = gap / Math.max(volatility, 0.0001);
 
       let trendAgreement = 0;
-
       if (slope5 > 0 && slope10 > 0 && slope20 > 0) trendAgreement += 25;
       if (slope5 < 0 && slope10 < 0 && slope20 < 0) trendAgreement += 25;
 
@@ -906,15 +898,17 @@
       if (trendBias > 0) trendAgreement += 10;
       if (trendBias < 0) trendAgreement += 10;
 
-      const confidenceBase =
-        (gapConfidence * 0.55) +
-        (trendAgreement * 0.45);
+      // Confidence floor aligned with the fact that a side has already been chosen.
+      let confidence = 50 + (normalizedGap * 18);
+      confidence += trendAgreement * 0.20;
 
-      const confidence = clamp(
-        Math.round(strength === "STRONG" ? confidenceBase + 8 : confidenceBase - 6),
-        1,
-        99
-      );
+      if (strength === "STRONG") {
+        confidence += 10;
+      } else {
+        confidence -= 4;
+      }
+
+      confidence = clamp(Math.round(confidence), 50, 95);
 
       let probabilityHigher;
       if (prediction === "HIGHER") {
@@ -935,6 +929,7 @@
       logic.push(`Recent momentum is ${recentMomentum >= 0 ? "+" : ""}${recentMomentum.toFixed(2)} over the newest 5 values.`);
       logic.push(`Latest value is ${latestValue.toFixed(2)}, which is ${seasonGap >= 0 ? "+" : ""}${seasonGap.toFixed(2)} from season average.`);
       logic.push(`Rolling volatility = ${rollingVolatility.toFixed(2)}, scale volatility = ${scaleVolatility.toFixed(2)}, percent volatility = ${percentVolatility.toFixed(2)}.`);
+      logic.push(`Gap vs comparison value is ${gap.toFixed(2)}. Normalized gap is ${normalizedGap.toFixed(2)}.`);
 
       if (comparison.mode === "manualThreshold") {
         logic.push(`Projected next is compared to the custom threshold of ${target.toFixed(2)}.`);
@@ -953,6 +948,8 @@
           `The volatility band overlaps the comparison value, so the ${prediction} call is WEAK.`
         );
       }
+
+      logic.push(`Confidence is kept on a directional scale once a side is chosen, so weak signals still stay above 50%.`);
 
       return {
         values,
@@ -1145,7 +1142,10 @@
 
       const accuracy = (correct / history.length) * 100;
       accuracyNote.textContent = `Accuracy: ${correct}/${history.length} correct (${accuracy.toFixed(1)}%).`;
-      localStorage.setItem("hlPredictorHistory20SeasonHybridVol", JSON.stringify(history));
+      localStorage.setItem(
+        "hlPredictorHistory20SeasonHybridVolV2",
+        JSON.stringify(history)
+      );
     }
 
     function saveActualResult() {
@@ -1319,7 +1319,7 @@
     saveResultBtn.addEventListener("click", saveActualResult);
     resetHistoryBtn.addEventListener("click", () => {
       history = [];
-      localStorage.removeItem("hlPredictorHistory20SeasonHybridVol");
+      localStorage.removeItem("hlPredictorHistory20SeasonHybridVolV2");
       renderHistory();
     });
 
